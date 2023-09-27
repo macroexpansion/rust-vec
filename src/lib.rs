@@ -7,8 +7,12 @@ pub struct MyVec<T> {
     capacity: usize,
 }
 
+unsafe impl<T: Send> Send for MyVec<T> {}
+unsafe impl<T: Sync> Sync for MyVec<T> {}
+
 impl<T> MyVec<T> {
     pub fn new() -> Self {
+        assert_ne!(std::mem::size_of::<T>(), 0, "No zero-sized types");
         Self {
             ptr: NonNull::dangling(),
             len: 0,
