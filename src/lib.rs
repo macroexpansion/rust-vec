@@ -1,10 +1,12 @@
-use std::alloc;
-use std::ptr::NonNull;
+use std::{
+    alloc::{self, Layout},
+    ptr::NonNull,
+};
 
 pub struct MyVec<T> {
     ptr: NonNull<T>,
     len: usize,
-    capacity: usize,
+    cap: usize,
 }
 
 unsafe impl<T: Send> Send for MyVec<T> {}
@@ -16,7 +18,7 @@ impl<T> MyVec<T> {
         Self {
             ptr: NonNull::dangling(),
             len: 0,
-            capacity: 0,
+            cap: 0,
         }
     }
 
@@ -25,12 +27,48 @@ impl<T> MyVec<T> {
     }
 
     pub fn capacity(&self) -> usize {
-        self.capacity
+        self.cap
+    }
+
+    fn grow(&mut self) {
+        let (new_cap, new_layout) = if self.cap == 0 {
+            (1, Layout::array::<T>(1).unwrap())
+        } else {
+            // This can't overflow since self.cap <= isize::MAX.
+            let new_cap = 2 * self.cap;
+
+            // `Layout::array` checks that the number of bytes is <= usize::MAX,
+            // but this is redundant since old_layout.size() <= isize::MAX,
+            // so the `unwrap` should never fail.
+            let new_layout = Layout::array::<T>(new_cap).unwrap();
+            (new_cap, new_layout)
+        };
+
+        // Ensure that the new allocation doesn't exceed `isize::MAX` bytes.
+        assert!(
+            new_layout.size() <= isize::MAX as usize,
+            "Allocation too large"
+        );
+
+        let new_ptr = if self.cap == 0 {
+            unsafe { alloc::alloc(new_layout) }
+        } else {
+            let old_layout = Layout::array::<T>(self.cap).unwrap();
+            let old_ptr = self.ptr.as_ptr() as *mut u8;
+            unsafe { alloc::realloc(old_ptr, old_layout, new_layout.size()) }
+        };
+
+        // If allocation fails, `new_ptr` will be null, in which case we abort.
+        self.ptr = match NonNull::new(new_ptr as *mut T) {
+            Some(p) => p,
+            None => alloc::handle_alloc_error(new_layout),
+        };
+        self.cap = new_cap;
     }
 
     pub fn push(&mut self, item: T) {
         assert_ne!(std::mem::size_of::<T>(), 0, "No zero-sized types");
-        if self.capacity == 0 {
+        if self.cap == 0 {
             let layout = alloc::Layout::array::<T>(4).expect("Could not allocate layout");
             // SAFETY: the layout is hardcoded to be 4 * size_of::<T>() and size_of::<T>()  is greater
             // than 0
@@ -44,22 +82,22 @@ impl<T> MyVec<T> {
 
             self.ptr = ptr;
             self.len = 1;
-            self.capacity = 4;
-        } else if self.len < self.capacity {
+            self.cap = 4;
+        } else if self.len < self.cap {
             unsafe {
                 self.ptr.as_ptr().add(self.len).write(item);
             }
             self.len += 1;
         } else {
-            debug_assert!(self.len == self.capacity);
+            debug_assert!(self.len == self.cap);
 
-            let new_capacity = self.capacity.checked_mul(2).expect("Arithmetic overflow");
-            let size = std::mem::size_of::<T>() * self.capacity;
+            let new_cap = self.cap.checked_mul(2).expect("Arithmetic overflow");
+            let size = std::mem::size_of::<T>() * self.cap;
             let align = std::mem::align_of::<T>();
             // size.checked_add(size % align).expect()
             let ptr = unsafe {
                 let layout = alloc::Layout::from_size_align_unchecked(size, align);
-                let new_size = std::mem::size_of::<T>() * new_capacity;
+                let new_size = std::mem::size_of::<T>() * new_cap;
                 let ptr = alloc::realloc(self.ptr.as_ptr() as *mut u8, layout, new_size);
                 let ptr = NonNull::new(ptr as *mut T).expect("Could not reallocate memory");
                 ptr.as_ptr().add(self.len).write(item);
@@ -67,7 +105,7 @@ impl<T> MyVec<T> {
             };
             self.ptr = ptr;
             self.len += 1;
-            self.capacity = new_capacity;
+            self.cap = new_cap;
         }
     }
 
@@ -85,7 +123,7 @@ impl<T> Drop for MyVec<T> {
         unsafe {
             std::ptr::drop_in_place(std::slice::from_raw_parts_mut(self.ptr.as_ptr(), self.len));
             let layout = alloc::Layout::from_size_align_unchecked(
-                std::mem::size_of::<T>() * self.capacity,
+                std::mem::size_of::<T>() * self.cap,
                 std::mem::align_of::<T>(),
             );
             alloc::dealloc(self.ptr.as_ptr() as *mut u8, layout);
