@@ -1,7 +1,7 @@
 use std::{
     alloc::{self, Layout},
     ops::{Deref, DerefMut},
-    ptr::NonNull,
+    ptr::{self, NonNull},
 };
 
 pub struct MyVec<T> {
@@ -92,6 +92,37 @@ impl<T> MyVec<T> {
         let value = unsafe { &*self.ptr.as_ptr().add(index) };
         Some(value)
     }
+
+    pub fn insert(&mut self, index: usize, elem: T) {
+        assert!(index <= self.len, "index out of bounds");
+        if self.cap == self.len {
+            self.grow();
+        }
+        unsafe {
+            ptr::copy(
+                self.ptr.as_ptr().add(index),
+                self.ptr.as_ptr().add(index + 1),
+                self.len - index,
+            );
+            ptr::write(self.ptr.as_ptr().add(index), elem);
+        }
+        self.len += 1;
+    }
+
+    pub fn remove(&mut self, index: usize) -> T {
+        assert!(index < self.len, "index out of bounds");
+        self.len -= 1;
+        let result = unsafe {
+            let elem = ptr::read(self.ptr.as_ptr().add(index));
+            ptr::copy(
+                self.ptr.as_ptr().add(index + 1),
+                self.ptr.as_ptr().add(index),
+                self.len - index,
+            );
+            elem
+        };
+        result
+    }
 }
 
 impl<T> Drop for MyVec<T> {
@@ -128,15 +159,21 @@ mod tests {
         vec.push(2i32);
         vec.push(3i32);
         vec.push(4i32);
-
-        vec.push(1i32);
-        vec.push(1i32);
+        vec.push(5i32);
+        vec.push(6i32);
 
         vec.pop();
         vec.pop();
-
-        assert_eq!(*(vec.get(0).unwrap()), 1i32);
-        assert_eq!(*(vec.get(1).unwrap()), 2i32);
         assert_eq!(vec.len(), 4);
+        assert_eq!(*(vec.get(0).unwrap()), 1i32);
+
+        vec.insert(1, 1i32);
+        assert_eq!(vec.len(), 5);
+        assert_eq!(*(vec.get(1).unwrap()), 1i32);
+
+        let elem = vec.remove(1);
+        assert_eq!(vec.len(), 4);
+        assert_eq!(elem, 1i32);
+        assert_eq!(*(vec.get(1).unwrap()), 2i32);
     }
 }
