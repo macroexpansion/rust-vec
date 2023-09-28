@@ -67,46 +67,25 @@ impl<T> MyVec<T> {
     }
 
     pub fn push(&mut self, item: T) {
-        assert_ne!(std::mem::size_of::<T>(), 0, "No zero-sized types");
-        if self.cap == 0 {
-            let layout = alloc::Layout::array::<T>(4).expect("Could not allocate layout");
-            // SAFETY: the layout is hardcoded to be 4 * size_of::<T>() and size_of::<T>()  is greater
-            // than 0
-            let ptr: *mut T = unsafe { alloc::alloc(layout) } as *mut T;
-            let ptr: NonNull<T> = NonNull::new(ptr).expect("Could not allocate memory");
-            // why is this ok? ptr is non-null pointer
-            unsafe {
-                ptr.as_ptr().write(item); // dont use *ptr.as_ptr() = val because it will read the
-                                          // pointer first
-            };
-
-            self.ptr = ptr;
-            self.len = 1;
-            self.cap = 4;
-        } else if self.len < self.cap {
-            unsafe {
-                self.ptr.as_ptr().add(self.len).write(item);
-            }
-            self.len += 1;
-        } else {
-            debug_assert!(self.len == self.cap);
-
-            let new_cap = self.cap.checked_mul(2).expect("Arithmetic overflow");
-            let size = std::mem::size_of::<T>() * self.cap;
-            let align = std::mem::align_of::<T>();
-            // size.checked_add(size % align).expect()
-            let ptr = unsafe {
-                let layout = alloc::Layout::from_size_align_unchecked(size, align);
-                let new_size = std::mem::size_of::<T>() * new_cap;
-                let ptr = alloc::realloc(self.ptr.as_ptr() as *mut u8, layout, new_size);
-                let ptr = NonNull::new(ptr as *mut T).expect("Could not reallocate memory");
-                ptr.as_ptr().add(self.len).write(item);
-                ptr
-            };
-            self.ptr = ptr;
-            self.len += 1;
-            self.cap = new_cap;
+        if self.cap == self.len {
+            self.grow();
         }
+
+        unsafe {
+            self.ptr.as_ptr().add(self.len).write(item);
+        }
+
+        self.len += 1;
+    }
+
+    pub fn pop(&mut self) -> Option<T> {
+        if self.len == 0 {
+            return None;
+        }
+
+        self.len -= 1;
+
+        unsafe { Some(self.ptr.as_ptr().add(self.len).read()) }
     }
 
     pub fn get(&self, index: usize) -> Option<&T> {
@@ -146,9 +125,11 @@ mod tests {
         vec.push(1i32);
         vec.push(1i32);
 
+        vec.pop();
+        vec.pop();
+
         assert_eq!(*(vec.get(0).unwrap()), 1i32);
         assert_eq!(*(vec.get(1).unwrap()), 2i32);
-        assert_eq!(vec.len(), 6);
-        assert_eq!(vec.capacity(), 8);
+        assert_eq!(vec.len(), 4);
     }
 }
