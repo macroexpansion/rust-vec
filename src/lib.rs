@@ -1,5 +1,6 @@
 use std::{
     alloc::{self, Layout},
+    ops::{Deref, DerefMut},
     ptr::NonNull,
 };
 
@@ -104,6 +105,19 @@ impl<T> Drop for MyVec<T> {
             let layout = Layout::array::<T>(self.cap).unwrap();
             alloc::dealloc(self.ptr.as_ptr() as *mut u8, layout);
         }
+    }
+}
+
+impl<T> Deref for MyVec<T> {
+    type Target = [T];
+    fn deref(&self) -> &Self::Target {
+        unsafe { std::slice::from_raw_parts(self.ptr.as_ptr(), self.len) }
+    }
+}
+
+impl<T> DerefMut for MyVec<T> {
+    fn deref_mut(&mut self) -> &mut [T] {
+        unsafe { std::slice::from_raw_parts_mut(self.ptr.as_ptr(), self.len) }
     }
 }
 
