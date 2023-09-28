@@ -23,10 +23,6 @@ impl<T> MyVec<T> {
         }
     }
 
-    pub fn len(&self) -> usize {
-        self.len
-    }
-
     pub fn capacity(&self) -> usize {
         self.cap
     }
