@@ -1,14 +1,16 @@
+mod drain;
 mod into_iter;
 mod raw_iter;
 mod raw_vec;
 
 use std::{
+    marker::PhantomData,
     mem,
     ops::{Deref, DerefMut},
     ptr,
 };
 
-use crate::{into_iter::IntoIter, raw_iter::RawValIter, raw_vec::RawVec};
+use crate::{drain::Drain, into_iter::IntoIter, raw_iter::RawValIter, raw_vec::RawVec};
 
 pub struct MyVec<T> {
     buf: RawVec<T>,
@@ -99,6 +101,22 @@ impl<T> MyVec<T> {
         };
         result
     }
+
+    pub fn drain(&mut self) -> Drain<T> {
+        unsafe {
+            let iter = RawValIter::new(&self);
+
+            // this is a mem::forget safety thing. If Drain is forgotten, we just
+            // leak the whole Vec's contents. Also we need to do this *eventually*
+            // anyway, so why not do it now?
+            self.len = 0;
+
+            Drain {
+                iter,
+                vec: PhantomData,
+            }
+        }
+    }
 }
 
 impl<T> Drop for MyVec<T> {
@@ -182,5 +200,16 @@ mod tests {
         assert_eq!(iterator.next(), Some(2));
         assert_eq!(iterator.next_back(), Some(3));
         assert_eq!(iterator.next_back(), None);
+    }
+
+    #[test]
+    fn test_drain() {
+        let mut vec: MyVec<usize> = MyVec::new();
+        vec.push(1);
+        vec.push(2);
+        vec.push(3);
+
+        for _ in vec.drain() {}
+        assert_eq!(vec.len(), 0);
     }
 }
