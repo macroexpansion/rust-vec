@@ -1,4 +1,5 @@
 mod into_iter;
+mod raw_iter;
 mod raw_vec;
 
 use std::{
@@ -7,8 +8,7 @@ use std::{
     ptr,
 };
 
-use crate::into_iter::IntoIter;
-use crate::raw_vec::RawVec;
+use crate::{into_iter::IntoIter, raw_iter::RawValIter, raw_vec::RawVec};
 
 pub struct MyVec<T> {
     buf: RawVec<T>,
@@ -129,18 +129,12 @@ impl<T> IntoIterator for MyVec<T> {
 
     fn into_iter(self) -> IntoIter<T> {
         unsafe {
+            let raw_iter = RawValIter::new(&self);
             let buf = ptr::read(&self.buf);
-            let len = self.len;
             mem::forget(self);
 
             IntoIter {
-                start: buf.ptr.as_ptr(),
-                end: if buf.cap == 0 {
-                    // can't offset off this pointer, it's not allocated!
-                    buf.ptr.as_ptr()
-                } else {
-                    buf.ptr.as_ptr().add(len)
-                },
+                iter: raw_iter,
                 _buf: buf,
             }
         }
